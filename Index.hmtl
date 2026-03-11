@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Universal AI Chat</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<style>
+html,body{
+height:100%;
+}
+
+#chatMessages{
+scroll-behavior:smooth;
+}
+
+pre{
+background:#111;
+color:#eee;
+padding:12px;
+border-radius:8px;
+overflow:auto;
+}
+
+code{
+background:#eee;
+padding:2px 6px;
+border-radius:4px;
+}
+
+.dark pre{
+background:#000;
+}
+
+.dark code{
+background:#333;
+}
+
+.sidebar{
+transition:transform .25s ease;
+}
+
+.sidebar-hidden{
+transform:translateX(-100%);
+}
+
+.typingCursor::after{
+content:"▋";
+animation:blink 1s infinite;
+}
+
+@keyframes blink{
+0%{opacity:1}
+50%{opacity:0}
+100%{opacity:1}
+}
+
+</style>
+</head>
+
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+
+<div id="loading" class="fixed inset-0 flex items-center justify-center text-xl bg-white dark:bg-gray-900 z-50">
+Loading App...
+</div>
+
+<div id="app" class="min-h-screen flex">
+
+<!-- Sidebar -->
+<div id="sidebar" class="sidebar w-72 bg-white dark:bg-gray-800 border-r dark:border-gray-700 flex flex-col fixed md:static h-full z-40">
+
+<div class="p-4 flex justify-between items-center border-b dark:border-gray-700">
+<div class="font-bold">AI Chats</div>
+<button id="closeSidebar" class="md:hidden">✕</button>
+</div>
+
+<button id="newChatBtn" class="m-3 p-2 bg-blue-600 text-white rounded">+ New Chat</button>
+
+<div id="chatList" class="flex-1 overflow-y-auto"></div>
+
+<div class="p-3 border-t dark:border-gray-700 space-y-2">
+
+<button id="settingsBtn" class="w-full bg-gray-200 dark:bg-gray-700 p-2 rounded">Settings</button>
+
+<button id="systemPromptBtn" class="w-full bg-gray-200 dark:bg-gray-700 p-2 rounded">System Prompt</button>
+
+<button id="darkToggle" class="w-full bg-gray-200 dark:bg-gray-700 p-2 rounded">Toggle Dark</button>
+
+</div>
+
+</div>
+
+<!-- Main -->
+<div class="flex-1 flex flex-col min-h-screen">
+
+<!-- Topbar -->
+<div class="p-3 border-b dark:border-gray-700 flex items-center gap-3">
+
+<button id="openSidebar" class="md:hidden">☰</button>
+
+<div id="chatTitle" class="font-semibold">New Chat</div>
+
+</div>
+
+<!-- Messages -->
+<div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+
+<!-- Input -->
+<div class="sticky bottom-0 bg-white dark:bg-gray-900 border-t dark:border-gray-700 p-3">
+
+<div class="flex gap-2">
+
+<textarea id="userInput"
+rows="1"
+placeholder="Ask anything..."
+class="flex-1 border rounded p-2 resize-none bg-gray-50 dark:bg-gray-800"></textarea>
+
+<button id="sendBtn" class="bg-blue-600 text-white px-4 rounded">Send</button>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+<!-- SETTINGS MODAL -->
+<div id="settingsModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+
+<div class="bg-white dark:bg-gray-800 p-6 rounded w-96 space-y-4">
+
+<h2 class="text-lg font-bold">Settings</h2>
+
+<input id="apiKeyInput" type="password" placeholder="OpenRouter API Key"
+class="w-full border p-2 rounded">
+
+<input id="modelInput" placeholder="Model"
+class="w-full border p-2 rounded">
+
+<button id="saveSettings" class="bg-blue-600 text-white px-4 py-2 rounded w-full">
+Save
+</button>
+
+</div>
+
+</div>
+
+
+<!-- SYSTEM PROMPT -->
+<div id="systemModal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+
+<div class="bg-white dark:bg-gray-800 p-6 rounded w-[500px] max-w-[95%] space-y-3">
+
+<h2 class="font-bold">System Prompt</h2>
+
+<textarea id="systemPromptInput" rows="6"
+class="w-full border p-2 rounded"></textarea>
+
+<button id="saveSystemPrompt" class="bg-blue-600 text-white px-4 py-2 rounded w-full">
+Save
+</button>
+
+</div>
+
+</div>
+
+
+<script>
+
+const $ = id=>document.getElementById(id)
+
+let chats=JSON.parse(localStorage.getItem("chats")||"[]")
+let currentChat=null
+
+function saveChats(){
+localStorage.setItem("chats",JSON.stringify(chats))
+}
+
+function newChat(){
+const chat={
+id:Date.now(),
+title:"New Chat",
+messages:[],
+system:""
+}
+chats.unshift(chat)
+currentChat=chat
+saveChats()
+renderChats()
+renderMessages()
+}
+
+function renderChats(){
+
+$("chatList").innerHTML=""
+
+chats.forEach(chat=>{
+
+const el=document.createElement("div")
+el.className="p-3 border-b dark:border-gray-700 cursor-pointer flex justify-between"
+
+el.innerHTML=`
+<span>${chat.title}</span>
+<div class="space-x-2">
+<button data-r="${chat.id}">✎</button>
+<button data-d="${chat.id}">🗑</button>
+</div>
+`
+
+el.onclick=()=>{
+currentChat=chat
+renderMessages()
+$("chatTitle").textContent=chat.title
+}
+
+el.querySelector("[data-r]").onclick=(e)=>{
+e.stopPropagation()
+const name=prompt("Rename chat",chat.title)
+if(name){chat.title=name;saveChats();renderChats()}
+}
+
+el.querySelector("[data-d]").onclick=(e)=>{
+e.stopPropagation()
+chats=chats.filter(c=>c.id!==chat.id)
+if(currentChat?.id===chat.id)currentChat=null
+saveChats()
+renderChats()
+renderMessages()
+}
+
+$("chatList").appendChild(el)
+
+})
+
+}
+
+function renderMessages(){
+
+$("chatMessages").innerHTML=""
+
+if(!currentChat)return
+
+currentChat.messages.forEach(m=>{
+addMessage(m.role,m.content,false)
+})
+
+$("chatTitle").textContent=currentChat.title
+
+}
+
+function addMessage(role,text,scroll=true){
+
+const wrap=document.createElement("div")
+wrap.className=role==="user"?"text-right":"text-left"
+
+const bubble=document.createElement("div")
+bubble.className=`
+inline-block max-w
